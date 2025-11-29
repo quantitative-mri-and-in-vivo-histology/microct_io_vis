@@ -18,10 +18,14 @@ import tifffile
 import zarr
 from zarr.codecs import BloscCodec
 from skimage.transform import downscale_local_mean
+from tqdm import tqdm
 
 
 # Default memory budget: 4GB
 DEFAULT_MEMORY_BYTES = 4 * 1024**3
+
+# Supported output dtypes
+OutputDtype = Literal["float32", "uint16"]
 
 
 def parse_memory_string(mem_str: str) -> int:
@@ -145,6 +149,8 @@ class StreamingPyramidConverter:
         num_levels: int = 4,
         compression: Literal["blosc-lz4", "blosc-zstd", "none"] = "blosc-lz4",
         max_memory_bytes: int | None = None,
+        output_dtype: OutputDtype = "float32",
+        value_range: tuple[float, float] | None = None,
     ):
         """
         Initialize the converter.
@@ -159,16 +165,24 @@ class StreamingPyramidConverter:
             compression: Compression codec ("blosc-lz4", "blosc-zstd", "none")
             max_memory_bytes: Maximum memory budget in bytes. If None, defaults
                 to 4GB with an informational message.
+            output_dtype: Output data type. "float32" preserves original values,
+                "uint16" normalizes to 0-65535 for 50% storage reduction.
+            value_range: (min, max) range for uint16 normalization. If None and
+                output_dtype is "uint16", will pre-scan the TIFF to find range.
         """
         # Validate inputs
         if num_levels < 1:
             raise ValueError(f"num_levels must be >= 1, got {num_levels}")
+        if output_dtype not in ("float32", "uint16"):
+            raise ValueError(f"output_dtype must be 'float32' or 'uint16', got {output_dtype}")
 
         self.tiff_path = Path(tiff_path)
         self.zarr_path = Path(zarr_path)
         self.num_levels = num_levels
         self.chunk_size = chunk_size
         self.compression = compression
+        self.output_dtype = output_dtype
+        self.value_range = value_range
 
         # Memory budget
         self._using_default_memory = max_memory_bytes is None
@@ -217,6 +231,58 @@ class StreamingPyramidConverter:
             return [BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle")]
         else:
             raise ValueError(f"Unknown compression: {self.compression}")
+
+    def _compute_value_range(self, show_progress: bool = True) -> tuple[float, float]:
+        """
+        Pre-scan the TIFF to find global min/max values.
+
+        Args:
+            show_progress: Whether to show tqdm progress bar
+
+        Returns:
+            Tuple of (min_value, max_value)
+        """
+        global_min = float('inf')
+        global_max = float('-inf')
+
+        with tifffile.TiffFile(self.tiff_path) as tif:
+            pages = tif.pages
+            iterator = tqdm(
+                pages,
+                desc="Pre-scanning for value range",
+                unit="slice",
+                disable=not show_progress,
+            )
+            for page in iterator:
+                data = page.asarray()
+                global_min = min(global_min, float(data.min()))
+                global_max = max(global_max, float(data.max()))
+
+        return (global_min, global_max)
+
+    def _convert_to_output_dtype(self, data: np.ndarray) -> np.ndarray:
+        """
+        Convert float32 data to output dtype.
+
+        Args:
+            data: Input array (float32)
+
+        Returns:
+            Array converted to output_dtype
+        """
+        if self.output_dtype == "float32":
+            return data
+
+        # uint16: normalize to [0, 65535]
+        vmin, vmax = self.value_range
+        if vmax == vmin:
+            # Avoid division by zero - all values are the same
+            return np.zeros(data.shape, dtype=np.uint16)
+
+        # Normalize to [0, 1], then scale to [0, 65535]
+        normalized = (data - vmin) / (vmax - vmin)
+        scaled = np.clip(normalized, 0, 1) * 65535
+        return scaled.astype(np.uint16)
 
     def _calculate_memory_per_batch(self) -> dict[str, int]:
         """
@@ -288,11 +354,12 @@ class StreamingPyramidConverter:
             )
 
             # Use create_array with zarr v3 API
+            dtype = np.uint16 if self.output_dtype == "uint16" else np.float32
             create_kwargs = {
                 "name": str(level),
                 "shape": shape,
                 "chunks": level_chunks,
-                "dtype": np.float32,
+                "dtype": dtype,
                 "fill_value": 0,
             }
             if compressors is not None:
@@ -322,6 +389,21 @@ class StreamingPyramidConverter:
                 ]
             })
 
+        # Build metadata dict
+        metadata = {
+            "description": "Converted from BigTIFF with streaming pyramid generation",
+            "original_shape": list(self.source_shape),
+        }
+
+        # Add dtype conversion info for uint16
+        if self.output_dtype == "uint16" and self.value_range is not None:
+            metadata["dtype_conversion"] = {
+                "source_dtype": "float32",
+                "output_dtype": "uint16",
+                "source_range": list(self.value_range),
+                "transform": "linear",
+            }
+
         # OME-NGFF multiscales metadata
         root.attrs["multiscales"] = [{
             "version": "0.4",
@@ -333,10 +415,7 @@ class StreamingPyramidConverter:
             ],
             "datasets": datasets,
             "type": "local_mean",  # Downsampling method used
-            "metadata": {
-                "description": "Converted from BigTIFF with streaming pyramid generation",
-                "original_shape": list(self.source_shape),
-            }
+            "metadata": metadata,
         }]
 
     def _read_batch(
@@ -441,7 +520,8 @@ class StreamingPyramidConverter:
 
     def convert(
         self,
-        progress_callback: Optional[Callable[[int, int, dict], None]] = None
+        progress_callback: Optional[Callable[[int, int, dict], None]] = None,
+        show_progress: bool = True,
     ) -> Path:
         """
         Run the conversion with memory-aware buffering.
@@ -453,10 +533,15 @@ class StreamingPyramidConverter:
                 - 'buffer_threshold': Number of batches before flush
                 - 'batches_buffered': Current number of batches in buffer
                 - 'flushing': True if currently flushing buffers to disk
+            show_progress: Whether to show progress bars (for pre-scan)
 
         Returns:
             Path to the created OME-Zarr directory
         """
+        # Pre-scan for value range if needed
+        if self.output_dtype == "uint16" and self.value_range is None:
+            self.value_range = self._compute_value_range(show_progress=show_progress)
+
         # Create output structure
         root = self._create_zarr_arrays()
 
@@ -504,7 +589,9 @@ class StreamingPyramidConverter:
                 actual_data = buffered_data[:actual_z_end - z_start]
 
                 if actual_data.shape[0] > 0:
-                    root[str(level)][z_start:actual_z_end] = actual_data
+                    # Convert dtype at flush time (keeps processing in float32)
+                    converted_data = self._convert_to_output_dtype(actual_data)
+                    root[str(level)][z_start:actual_z_end] = converted_data
 
                 # Reset buffer
                 buffers[level] = []
@@ -576,6 +663,8 @@ def convert_tiff_to_ome_zarr(
     num_levels: int = 4,
     compression: Literal["blosc-lz4", "blosc-zstd", "none"] = "blosc-lz4",
     max_memory: str | int | None = None,
+    output_dtype: OutputDtype = "float32",
+    value_range: tuple[float, float] | None = None,
     progress: bool = True,
 ) -> Path:
     """
@@ -591,13 +680,15 @@ def convert_tiff_to_ome_zarr(
         compression: Compression codec
         max_memory: Memory budget as string ('4G', '500M') or bytes (int).
             If None, defaults to 4GB.
+        output_dtype: Output data type. "float32" preserves original values,
+            "uint16" normalizes to 0-65535 for 50% storage reduction.
+        value_range: (min, max) range for uint16 normalization. If None and
+            output_dtype is "uint16", will pre-scan the TIFF to find range.
         progress: Whether to print progress
 
     Returns:
         Path to the created OME-Zarr directory
     """
-    from tqdm import tqdm
-
     # Parse memory budget
     if isinstance(max_memory, str):
         max_memory_bytes = parse_memory_string(max_memory)
@@ -611,6 +702,8 @@ def convert_tiff_to_ome_zarr(
         num_levels=num_levels,
         compression=compression,
         max_memory_bytes=max_memory_bytes,
+        output_dtype=output_dtype,
+        value_range=value_range,
     )
 
     # Print info
@@ -628,6 +721,9 @@ def convert_tiff_to_ome_zarr(
         print(f"  Pyramid levels: {num_levels}")
         print(f"  Batch size: {converter.batch_size} slices")
         print(f"  Chunk size: {chunk_size}")
+        print(f"  Output dtype: {output_dtype}")
+        if output_dtype == "uint16" and value_range is not None:
+            print(f"  Value range: [{value_range[0]:.6f}, {value_range[1]:.6f}]")
         print(f"  Memory budget: {mem['memory_budget_mb']:.0f} MB")
         print(f"  Buffer threshold: {mem['buffer_threshold']} batches")
         print(f"  Estimated peak: {mem['estimated_peak_mb']:.0f} MB")
@@ -658,7 +754,10 @@ def convert_tiff_to_ome_zarr(
             pbar.n = current
             pbar.refresh()
 
-    result = converter.convert(progress_callback=progress_callback if progress else None)
+    result = converter.convert(
+        progress_callback=progress_callback if progress else None,
+        show_progress=progress,
+    )
 
     pbar.close()
 

@@ -692,3 +692,200 @@ class TestSpatialPadding:
 
         # Original shape should be recorded
         assert multiscales["metadata"]["original_shape"] == [10, 33, 47]
+
+
+class TestDtypeConversion:
+    """Tests for output dtype conversion (uint16)."""
+
+    @pytest.fixture
+    def float32_tiff(self, tmp_path):
+        """Create a TIFF with float32 values in a known range."""
+        tiff_path = tmp_path / "float32_data.tif"
+
+        # Create data with known range: [-0.5, 1.5]
+        with tifffile.TiffWriter(tiff_path, bigtiff=True) as tif:
+            for _ in range(4):
+                # Linearly varying values from -0.5 to 1.5 across the slice
+                data = np.linspace(-0.5, 1.5, 64 * 64, dtype=np.float32).reshape(64, 64)
+                tif.write(data)
+
+        return tiff_path
+
+    def test_uint16_conversion_and_normalization(self, float32_tiff, tmp_path):
+        """Test conversion to uint16 with correct normalization."""
+        zarr_path = tmp_path / "uint16_output.zarr"
+
+        convert_tiff_to_ome_zarr(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="uint16",
+            value_range=(-0.5, 1.5),
+            progress=False,
+        )
+
+        root = zarr.open(str(zarr_path), mode="r")
+
+        # Check dtype is uint16
+        assert root["0"].dtype == np.uint16
+        assert root["1"].dtype == np.uint16
+
+        # Check value range is [0, 65535]
+        data = root["0"][:]
+        assert data.min() >= 0
+        assert data.max() <= 65535
+
+        # Verify normalization: min value (-0.5) should map to 0
+        # max value (1.5) should map to 65535
+        assert data.min() == 0
+        assert data.max() == 65535
+
+    def test_explicit_value_range_skips_prescan(self, float32_tiff, tmp_path):
+        """Test that providing value_range skips the pre-scan."""
+        zarr_path = tmp_path / "no_prescan.zarr"
+
+        converter = StreamingPyramidConverter(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="uint16",
+            value_range=(-1.0, 2.0),  # Explicit range
+        )
+
+        # value_range should be set from init
+        assert converter.value_range == (-1.0, 2.0)
+
+        # Run conversion
+        converter.convert(show_progress=False)
+
+        # Should use the provided range, not auto-detected
+        root = zarr.open(str(zarr_path), mode="r")
+        multiscales = root.attrs["multiscales"][0]
+        assert multiscales["metadata"]["dtype_conversion"]["source_range"] == [-1.0, 2.0]
+
+    def test_metadata_contains_conversion_info(self, float32_tiff, tmp_path):
+        """Test that dtype conversion metadata is stored correctly."""
+        zarr_path = tmp_path / "meta_dtype.zarr"
+
+        convert_tiff_to_ome_zarr(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="uint16",
+            value_range=(-0.5, 1.5),
+            progress=False,
+        )
+
+        root = zarr.open(str(zarr_path), mode="r")
+        multiscales = root.attrs["multiscales"][0]
+
+        # Check conversion metadata
+        conv = multiscales["metadata"]["dtype_conversion"]
+        assert conv["source_dtype"] == "float32"
+        assert conv["output_dtype"] == "uint16"
+        assert conv["source_range"] == [-0.5, 1.5]
+        assert conv["transform"] == "linear"
+
+    def test_float32_default_unchanged(self, float32_tiff, tmp_path):
+        """Test that float32 output (default) preserves original values."""
+        zarr_path = tmp_path / "float32_output.zarr"
+
+        convert_tiff_to_ome_zarr(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="float32",  # Default
+            progress=False,
+        )
+
+        root = zarr.open(str(zarr_path), mode="r")
+
+        # Check dtype is float32
+        assert root["0"].dtype == np.float32
+
+        # Check values are preserved (not normalized)
+        data = root["0"][:]
+        assert np.isclose(data.min(), -0.5, atol=1e-5)
+        assert np.isclose(data.max(), 1.5, atol=1e-5)
+
+        # No dtype_conversion metadata for float32
+        multiscales = root.attrs["multiscales"][0]
+        assert "dtype_conversion" not in multiscales["metadata"]
+
+    def test_uint16_auto_range_detection(self, float32_tiff, tmp_path):
+        """Test automatic value range detection when not provided."""
+        zarr_path = tmp_path / "auto_range.zarr"
+
+        converter = StreamingPyramidConverter(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="uint16",
+            value_range=None,  # Should trigger pre-scan
+        )
+
+        # value_range is None before convert()
+        assert converter.value_range is None
+
+        # Run conversion (triggers pre-scan)
+        converter.convert(show_progress=False)
+
+        # value_range should be auto-detected
+        assert converter.value_range is not None
+        assert np.isclose(converter.value_range[0], -0.5, atol=1e-5)
+        assert np.isclose(converter.value_range[1], 1.5, atol=1e-5)
+
+    def test_invalid_output_dtype_raises(self, tmp_path):
+        """Test that invalid output_dtype raises ValueError."""
+        tiff_path = tmp_path / "dummy.tif"
+        with tifffile.TiffWriter(tiff_path, bigtiff=True) as tif:
+            tif.write(np.zeros((32, 32), dtype=np.float32))
+
+        zarr_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="output_dtype must be"):
+            StreamingPyramidConverter(
+                tiff_path=tiff_path,
+                zarr_path=zarr_path,
+                chunk_size=(4, 32, 32),
+                num_levels=2,
+                output_dtype="int8",  # Invalid
+            )
+
+    def test_value_recovery_formula(self, float32_tiff, tmp_path):
+        """Test that original values can be recovered from uint16 using metadata."""
+        zarr_path = tmp_path / "recoverable.zarr"
+
+        value_range = (-0.5, 1.5)
+
+        convert_tiff_to_ome_zarr(
+            tiff_path=float32_tiff,
+            zarr_path=zarr_path,
+            chunk_size=(4, 32, 32),
+            num_levels=2,
+            output_dtype="uint16",
+            value_range=value_range,
+            progress=False,
+        )
+
+        root = zarr.open(str(zarr_path), mode="r")
+        uint16_data = root["0"][:]
+
+        # Recover original values using the formula:
+        # original = source_range[0] + (uint16_value / 65535) * (source_range[1] - source_range[0])
+        vmin, vmax = value_range
+        recovered = vmin + (uint16_data.astype(np.float64) / 65535) * (vmax - vmin)
+
+        # Read original data
+        with tifffile.TiffFile(float32_tiff) as tif:
+            original_slice = tif.pages[0].asarray()
+
+        # Compare recovered values to original (allowing for quantization error)
+        # uint16 has 65536 levels, so max error is (vmax-vmin)/65535/2
+        max_quantization_error = (vmax - vmin) / 65535 / 2
+        assert np.allclose(recovered[0, :64, :64], original_slice, atol=max_quantization_error * 2)

@@ -157,6 +157,24 @@ def main():
     )
 
     parser.add_argument(
+        "--dtype", "-d",
+        choices=["float32", "uint16"],
+        default="float32",
+        help="Output data type. 'uint16' reduces storage by 50%% but requires "
+             "normalization. Original values can be recovered from metadata. "
+             "(default: float32)",
+    )
+
+    parser.add_argument(
+        "--value-range",
+        type=float,
+        nargs=2,
+        metavar=("MIN", "MAX"),
+        help="Value range for uint16 normalization. If not provided, the TIFF "
+             "will be pre-scanned to find the range (~10s for 56GB).",
+    )
+
+    parser.add_argument(
         "--info", "-i",
         action="store_true",
         help="Show TIFF info and exit (no conversion)",
@@ -212,6 +230,9 @@ def main():
         print("  Conversion-optimized:    --chunk-size 32 256 256")
         sys.exit(1)
 
+    # Prepare value_range if provided
+    value_range = tuple(args.value_range) if args.value_range else None
+
     # Run conversion
     try:
         convert_tiff_to_ome_zarr(
@@ -221,6 +242,8 @@ def main():
             num_levels=args.num_levels,
             compression=args.compression,
             max_memory=args.max_memory,
+            output_dtype=args.dtype,
+            value_range=value_range,
             progress=not args.quiet,
         )
 
