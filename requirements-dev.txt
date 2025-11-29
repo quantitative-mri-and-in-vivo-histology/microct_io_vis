@@ -1,0 +1,9 @@
+# Install main package requirements
+-r requirements.txt
+
+# Testing and debugging
+pytest
+pytest-cov
+ipython
+ipdb
+debugpy
