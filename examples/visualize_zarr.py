@@ -2,25 +2,29 @@
 """
 Neuroglancer visualization for OME-Zarr volumes.
 
-Launches a local Neuroglancer viewer to visualize converted volumes with
-multi-resolution pyramid support via HTTP serving.
+Launches a local Neuroglancer viewer to visualize converted volumes.
+Supports multi-resolution pyramids via HTTP serving.
 
 Usage:
     python examples/visualize_zarr.py data/processed/volume.zarr
 
     # Keep viewer open indefinitely (Ctrl+C to exit)
     python examples/visualize_zarr.py data/processed/volume.zarr --keep-open
+
+    # Use LocalVolume instead of HTTP (level 0 only)
+    python examples/visualize_zarr.py data/processed/volume.zarr --local
 """
 
 import argparse
-import http.server
-import socketserver
 import sys
 import threading
 import webbrowser
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import neuroglancer
+import numpy as np
 import zarr
 
 
@@ -36,58 +40,58 @@ def get_dtype_conversion_metadata(root: zarr.Group) -> dict | None:
     return None
 
 
-def start_http_server(zarr_path: Path, port: int = 0) -> tuple[socketserver.TCPServer, int]:
-    """
-    Start an HTTP server to serve the zarr directory.
+class CORSRequestHandler(SimpleHTTPRequestHandler):
+    """HTTP handler with CORS support for Neuroglancer."""
 
-    Args:
-        zarr_path: Path to OME-Zarr directory to serve
-        port: Port to use (0 = auto-select)
+    def __init__(self, *args, directory=None, **kwargs):
+        self.directory = directory
+        super().__init__(*args, directory=directory, **kwargs)
 
-    Returns:
-        Tuple of (server, actual_port)
-    """
-    # Serve the parent directory so the zarr folder name is in the URL
-    serve_dir = zarr_path.parent
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        super().end_headers()
 
-    class CORSHandler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(serve_dir), **kwargs)
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
 
-        def end_headers(self):
-            # Add CORS headers for Neuroglancer
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "*")
-            super().end_headers()
+    def log_message(self, format, *args):
+        # Suppress HTTP access logs
+        pass
 
-        def do_OPTIONS(self):
-            self.send_response(200)
-            self.end_headers()
 
-        def log_message(self, format, *args):
-            # Suppress HTTP request logging
-            pass
+def start_cors_server(directory: Path, port: int = 8080) -> tuple[HTTPServer, int]:
+    """Start a CORS-enabled HTTP server for serving zarr data."""
+    handler = partial(CORSRequestHandler, directory=str(directory))
 
-    server = socketserver.TCPServer(("127.0.0.1", port), CORSHandler)
-    actual_port = server.server_address[1]
+    # Try to find an available port
+    for attempt in range(10):
+        try:
+            server = HTTPServer(("localhost", port + attempt), handler)
+            actual_port = port + attempt
+            break
+        except OSError:
+            continue
+    else:
+        raise RuntimeError(f"Could not find available port starting from {port}")
 
-    # Run server in background thread
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
     return server, actual_port
 
 
-def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
+def visualize_zarr(zarr_path: Path, keep_open: bool = False, local: bool = False, port: int = 9999) -> None:
     """
     Launch Neuroglancer viewer for an OME-Zarr volume.
-
-    Uses HTTP serving to enable multi-resolution pyramid support.
 
     Args:
         zarr_path: Path to OME-Zarr directory
         keep_open: If True, keep viewer open until Ctrl+C
+        local: If True, use LocalVolume (level 0 only). If False, use HTTP with pyramids.
+        port: Port for Neuroglancer viewer (default: 9999)
     """
     zarr_path = zarr_path.resolve()
 
@@ -124,28 +128,77 @@ def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
         print(f"Dtype conversion: {dtype_conversion['source_dtype']} -> {dtype_conversion['output_dtype']}")
         print(f"Original value range: [{source_range[0]:.6f}, {source_range[1]:.6f}]")
 
-    # Start HTTP server for the zarr directory
-    server, http_port = start_http_server(zarr_path)
-    zarr_http_url = f"http://127.0.0.1:{http_port}/{zarr_path.name}"
-    print(f"HTTP server: {zarr_http_url}")
+    # Extract axis info for coordinate space
+    axis_names = [ax.get("name", f"d{i}") for i, ax in enumerate(axes)]
+    axis_units = [ax.get("unit", "") for ax in axes]
 
-    # Set up neuroglancer
-    neuroglancer.set_server_bind_address("127.0.0.1")
+    # Get scale from first dataset's coordinate transformations
+    scale = [1.0] * len(axes)
+    coord_transforms = datasets[0].get("coordinateTransformations", [])
+    for transform in coord_transforms:
+        if transform.get("type") == "scale":
+            scale = transform.get("scale", scale)
+            break
+
+    # Neuroglancer expects SI unit abbreviations (um, nm, etc.), not full names
+    unit_map = {"micrometer": "um", "nanometer": "nm", "millimeter": "mm", "meter": "m"}
+    normalized_units = [unit_map.get(u, u) if u else "um" for u in axis_units]
+
+    dimensions = neuroglancer.CoordinateSpace(
+        names=axis_names,
+        units=normalized_units if all(normalized_units) else ["um"] * len(axes),
+        scales=scale,
+    )
+
+    # Set up neuroglancer viewer on specified port
+    neuroglancer.set_server_bind_address("127.0.0.1", port)
     viewer = neuroglancer.Viewer()
 
-    # Build zarr:// source URL for OME-Zarr with multiscale support
-    zarr_source_url = f"zarr://{zarr_http_url}"
+    server = None
+    if local:
+        # LocalVolume mode - level 0 only
+        print("Mode: LocalVolume (level 0 only)")
 
-    with viewer.txn() as s:
-        # Add the volume layer using HTTP-served zarr with pyramids
-        s.layers["volume"] = neuroglancer.ImageLayer(source=zarr_source_url)
+        with viewer.txn() as s:
+            s.dimensions = dimensions
+            s.layers["volume"] = neuroglancer.ImageLayer(
+                source=neuroglancer.LocalVolume(
+                    data=level0,
+                    dimensions=dimensions,
+                ),
+            )
+            s.position = [d // 2 for d in level0.shape]
+            max_dim = max(level0.shape[1], level0.shape[2])
+            s.crossSectionScale = max_dim / 500
+    else:
+        # HTTP mode - serves all pyramid levels
+        print("Mode: HTTP (multi-resolution pyramid)")
 
-        # Set initial position to center of volume
-        s.position = [d // 2 for d in level0.shape]
+        # Start CORS server in zarr parent directory (port 8000+)
+        server, http_port = start_cors_server(zarr_path.parent)
 
-        # Set zoom to fit the largest dimension in view
-        max_dim = max(level0.shape[1], level0.shape[2])  # Y or X
-        s.crossSectionScale = max_dim / 500
+        zarr_url = f"zarr://http://localhost:{http_port}/{zarr_path.name}"
+
+        # Get intensity range from lowest resolution level (fast to read)
+        # Use 1st and 99th percentile for better contrast
+        lowest_level = len(datasets) - 1
+        lowest_arr = root[datasets[lowest_level]["path"]]
+        sample_data = lowest_arr[:]
+        data_min, data_max = int(np.percentile(sample_data, 1)), int(np.percentile(sample_data, 99))
+
+        # Create shader with appropriate intensity window
+        shader = f"""
+#uicontrol invlerp normalized(range=[{data_min}, {data_max}])
+void main() {{
+  emitGrayscale(normalized());
+}}
+"""
+
+        with viewer.txn() as s:
+            s.layers["volume"] = neuroglancer.ImageLayer(
+                source=zarr_url,
+                shader=shader,
+            )
 
     print()
     print(f"Neuroglancer viewer URL: {viewer.get_viewer_url()}")
@@ -166,8 +219,8 @@ def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
         print("Press Enter to close viewer...")
         input()
 
-    # Clean up
-    server.shutdown()
+    if server:
+        server.shutdown()
 
 
 def main():
@@ -189,6 +242,19 @@ def main():
         help="Keep viewer open until Ctrl+C (default: wait for Enter)",
     )
 
+    parser.add_argument(
+        "--local", "-l",
+        action="store_true",
+        help="Use LocalVolume (level 0 only) instead of HTTP pyramid serving",
+    )
+
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=9999,
+        help="Port for Neuroglancer viewer (default: 9999)",
+    )
+
     args = parser.parse_args()
 
     # Validate path exists
@@ -200,7 +266,7 @@ def main():
         print(f"Error: Not a directory: {args.zarr_path}")
         sys.exit(1)
 
-    visualize_zarr(args.zarr_path, keep_open=args.keep_open)
+    visualize_zarr(args.zarr_path, keep_open=args.keep_open, local=args.local, port=args.port)
 
 
 if __name__ == "__main__":
