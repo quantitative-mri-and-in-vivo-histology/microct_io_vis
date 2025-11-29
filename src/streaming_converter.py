@@ -451,6 +451,8 @@ class StreamingPyramidConverter:
                 where info_dict contains:
                 - 'buffer_mb': Current estimated buffer memory in MB
                 - 'buffer_threshold': Number of batches before flush
+                - 'batches_buffered': Current number of batches in buffer
+                - 'flushing': True if currently flushing buffers to disk
 
         Returns:
             Path to the created OME-Zarr directory
@@ -476,9 +478,19 @@ class StreamingPyramidConverter:
                 for level_buf in buffers
             )
 
-        def flush_all_buffers() -> None:
+        def flush_all_buffers(batch_idx: int) -> None:
             """Flush all level buffers to disk."""
             nonlocal batches_buffered
+
+            # Notify that we're flushing
+            if progress_callback:
+                progress_callback(batch_idx, num_batches, {
+                    'buffer_mb': current_buffer_bytes() / 1e6,
+                    'buffer_threshold': buffer_threshold,
+                    'batches_buffered': batches_buffered,
+                    'flushing': True,
+                })
+
             for level in range(self.num_levels):
                 if not buffers[level]:
                     continue
@@ -516,16 +528,18 @@ class StreamingPyramidConverter:
 
                 # Flush when we hit threshold
                 if batches_buffered >= buffer_threshold:
-                    flush_all_buffers()
+                    flush_all_buffers(batch_idx + 1)
 
                 if progress_callback:
                     progress_callback(batch_idx + 1, num_batches, {
                         'buffer_mb': current_buffer_bytes() / 1e6,
                         'buffer_threshold': buffer_threshold,
+                        'batches_buffered': batches_buffered,
+                        'flushing': False,
                     })
 
         # Flush remaining data
-        flush_all_buffers()
+        flush_all_buffers(num_batches)
 
         return self.zarr_path
 
@@ -582,6 +596,8 @@ def convert_tiff_to_ome_zarr(
     Returns:
         Path to the created OME-Zarr directory
     """
+    from tqdm import tqdm
+
     # Parse memory budget
     if isinstance(max_memory, str):
         max_memory_bytes = parse_memory_string(max_memory)
@@ -617,16 +633,37 @@ def convert_tiff_to_ome_zarr(
         print(f"  Estimated peak: {mem['estimated_peak_mb']:.0f} MB")
         print()
 
+    # Set up progress bar
+    num_batches = (converter.source_shape[0] + converter.batch_size - 1) // converter.batch_size
+    pbar = tqdm(
+        total=num_batches,
+        desc="Converting",
+        unit="batch",
+        disable=not progress,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+    )
+
     def progress_callback(current: int, total: int, info: dict) -> None:
-        if progress:
-            pct = 100 * current / total
-            buffer_mb = info.get('buffer_mb', 0)
-            print(f"\r  Progress: {current}/{total} ({pct:.0f}%) | Buffer: {buffer_mb:.0f}MB",
-                  end="", flush=True)
+        buffer_mb = info.get('buffer_mb', 0)
+        batches_buffered = info.get('batches_buffered', 0)
+        buffer_threshold = info.get('buffer_threshold', 1)
+        flushing = info.get('flushing', False)
+
+        if flushing:
+            pbar.set_postfix_str(f"Writing {buffer_mb:.0f}MB to disk...")
+        else:
+            pbar.set_postfix_str(f"Buffer: {batches_buffered}/{buffer_threshold} ({buffer_mb:.0f}MB)")
+
+        # Only update progress on non-flush callbacks to avoid double counting
+        if not flushing:
+            pbar.n = current
+            pbar.refresh()
 
     result = converter.convert(progress_callback=progress_callback if progress else None)
 
+    pbar.close()
+
     if progress:
-        print("\n  Done!")
+        print("Done!")
 
     return result
