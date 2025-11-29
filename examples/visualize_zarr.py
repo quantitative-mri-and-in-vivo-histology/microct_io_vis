@@ -33,46 +33,6 @@ def get_dtype_conversion_metadata(root: zarr.Group) -> dict | None:
     return None
 
 
-def build_shader(dtype_conversion: dict | None) -> str:
-    """
-    Build GLSL shader for Neuroglancer.
-
-    For uint16 data with conversion metadata, uses invlerp to map
-    back to original value range for proper visualization.
-    """
-    if dtype_conversion and dtype_conversion.get("output_dtype") == "uint16":
-        source_range = dtype_conversion.get("source_range", [0, 1])
-        vmin, vmax = source_range
-
-        # Use invlerp to normalize uint16 [0, 65535] to display range
-        # The shader maps the data values to the original float range
-        return f"""
-#uicontrol invlerp normalized(range=[0, 65535], window=[0, 65535])
-#uicontrol float brightness slider(min=-1, max=1, default=0)
-#uicontrol float contrast slider(min=-3, max=3, default=0)
-
-void main() {{
-    float value = normalized();
-    // Apply brightness/contrast
-    value = (value - 0.5) * exp(contrast) + 0.5 + brightness;
-    value = clamp(value, 0.0, 1.0);
-    emitGrayscale(value);
-}}
-"""
-    else:
-        # Default shader for float32 data
-        return """
-#uicontrol invlerp normalized
-#uicontrol float brightness slider(min=-1, max=1, default=0)
-#uicontrol float contrast slider(min=-3, max=3, default=0)
-
-void main() {
-    float value = normalized();
-    value = (value - 0.5) * exp(contrast) + 0.5 + brightness;
-    value = clamp(value, 0.0, 1.0);
-    emitGrayscale(value);
-}
-"""
 
 
 def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
@@ -83,6 +43,8 @@ def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
         zarr_path: Path to OME-Zarr directory
         keep_open: If True, keep viewer open until Ctrl+C
     """
+    zarr_path = zarr_path.resolve()
+
     # Open zarr and read metadata
     root = zarr.open_group(zarr_path, mode="r")
 
@@ -143,25 +105,24 @@ def visualize_zarr(zarr_path: Path, keep_open: bool = False) -> None:
         scales=scale,
     )
 
-    # Build shader based on dtype
-    shader = build_shader(dtype_conversion)
-
     # Add the volume layer using LocalVolume
+    # Note: This only uses level 0, not the full pyramid (zarr v3 not supported via HTTP yet)
     with viewer.txn() as s:
         s.dimensions = dimensions
 
-        # Add each pyramid level
-        # For now, just add level 0 as a LocalVolume
         s.layers["volume"] = neuroglancer.ImageLayer(
             source=neuroglancer.LocalVolume(
                 data=level0,
                 dimensions=dimensions,
             ),
-            shader=shader,
         )
 
         # Set initial position to center of volume
         s.position = [d // 2 for d in level0.shape]
+
+        # Set zoom to fit the largest dimension in view
+        max_dim = max(level0.shape[1], level0.shape[2])  # Y or X
+        s.crossSectionScale = max_dim / 500
 
     print()
     print(f"Neuroglancer viewer URL: {viewer.get_viewer_url()}")
