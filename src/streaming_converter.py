@@ -640,7 +640,6 @@ def convert_tiff_to_ome_zarr(
         desc="Converting",
         unit="batch",
         disable=not progress,
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
     )
 
     def progress_callback(current: int, total: int, info: dict) -> None:
