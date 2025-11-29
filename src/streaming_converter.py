@@ -13,10 +13,10 @@ from pathlib import Path
 import sys
 from typing import Callable, Literal, Optional
 
+import numcodecs
 import numpy as np
 import tifffile
 import zarr
-from zarr.codecs import BloscCodec
 from skimage.transform import downscale_local_mean
 from tqdm import tqdm
 
@@ -221,14 +221,14 @@ class StreamingPyramidConverter:
         )
         self.pyramid_shapes = compute_pyramid_shapes(self.padded_shape, num_levels)
 
-    def _get_compressors(self) -> list | None:
-        """Get the configured compressor list for zarr v3."""
+    def _get_compressor(self) -> numcodecs.abc.Codec | None:
+        """Get the configured compressor for zarr v2."""
         if self.compression == "none":
             return None
         elif self.compression == "blosc-lz4":
-            return [BloscCodec(cname="lz4", clevel=5, shuffle="bitshuffle")]
+            return numcodecs.Blosc(cname="lz4", clevel=5, shuffle=numcodecs.Blosc.BITSHUFFLE)
         elif self.compression == "blosc-zstd":
-            return [BloscCodec(cname="zstd", clevel=3, shuffle="bitshuffle")]
+            return numcodecs.Blosc(cname="zstd", clevel=3, shuffle=numcodecs.Blosc.BITSHUFFLE)
         else:
             raise ValueError(f"Unknown compression: {self.compression}")
 
@@ -341,10 +341,10 @@ class StreamingPyramidConverter:
 
     def _create_zarr_arrays(self) -> zarr.Group:
         """Create the OME-Zarr structure with all pyramid levels."""
-        # Use zarr v3 API - pass path directly to open_group
-        root = zarr.open_group(self.zarr_path, mode="w")
+        # Use zarr v2 format for Neuroglancer compatibility
+        root = zarr.open_group(self.zarr_path, mode="w", zarr_format=2)
 
-        compressors = self._get_compressors()
+        compressor = self._get_compressor()
 
         # Create array for each pyramid level
         for level, shape in enumerate(self.pyramid_shapes):
@@ -353,19 +353,16 @@ class StreamingPyramidConverter:
                 min(c, s) for c, s in zip(self.chunk_size, shape)
             )
 
-            # Use create_array with zarr v3 API
+            # Use zarr v2 API
             dtype = np.uint16 if self.output_dtype == "uint16" else np.float32
-            create_kwargs = {
-                "name": str(level),
-                "shape": shape,
-                "chunks": level_chunks,
-                "dtype": dtype,
-                "fill_value": 0,
-            }
-            if compressors is not None:
-                create_kwargs["compressors"] = compressors
-
-            root.create_array(**create_kwargs)
+            root.create_array(
+                name=str(level),
+                shape=shape,
+                chunks=level_chunks,
+                dtype=dtype,
+                fill_value=0,
+                compressor=compressor,
+            )
 
         # Write OME-NGFF metadata
         self._write_ome_metadata(root)
