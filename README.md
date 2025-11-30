@@ -75,6 +75,13 @@ Tested on a 52.64 GB BigTIFF volume with 128x128x128 chunks and 8GB memory budge
 - Cloud-ready (S3/GCS or local filesystem)
 - Built-in multi-resolution pyramid spec (NGFF v0.4)
 
+## Alternative Tools
+
+Other OME-Zarr conversion tools worth evaluating:
+
+- [bioformats2raw](https://github.com/glencoesoftware/bioformats2raw) - Java-based, supports all Bio-Formats file formats
+- [BatchConvert](https://github.com/Euro-BioImaging/BatchConvert) - Nextflow wrapper for parallelized batch conversion
+
 ## Requirements
 
 - Python 3.10+
