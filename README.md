@@ -19,6 +19,15 @@ pip install -r requirements.txt
 
 ### Convert BigTIFF to OME-Zarr
 
+The converter streams 2D slices from BigTIFF and writes them as chunked 3D arrays in OME-Zarr format. It simultaneously builds a multi-resolution pyramid by progressively downsampling, enabling efficient visualization at any zoom level.
+
+![Conversion pipeline](docs/images/conversion_pipeline.png)
+
+**Key options:**
+- `--max-memory`: Memory budget for streaming. Lower values flush to disk more frequently, reducing RAM usage but increasing conversion time.
+- `--compression`: Compression algorithm (`blosc-zstd`, `blosc-lz4`, `none`). Saves disk space at the cost of slightly slower viewer performance.
+- `--dtype uint16`: Halves output size by converting from float32, but reduces dynamic range.
+
 ```bash
 # Basic conversion with isotropic chunks (best for visualization)
 python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128
@@ -35,13 +44,6 @@ python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --e
 # Convert to uint16 (50% smaller output, good for visualization)
 python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --dtype uint16
 ```
-
-![Conversion pipeline](docs/images/conversion_pipeline.png)
-
-**Key options:**
-- `--max-memory`: Memory budget for streaming. Lower values flush to disk more frequently, reducing RAM usage but increasing conversion time.
-- `--compression`: Compression algorithm (`blosc-zstd`, `blosc-lz4`, `none`). Saves disk space at the cost of slightly slower viewer performance.
-- `--dtype uint16`: Halves output size by converting from float32, but reduces dynamic range.
 
 ### Visualize in Neuroglancer
 
