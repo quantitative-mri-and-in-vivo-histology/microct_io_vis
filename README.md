@@ -15,6 +15,8 @@ Convert large micro-CT volumes (BigTIFF) to OME-Zarr with multi-resolution pyram
 pip install -r requirements.txt
 ```
 
+Or open the devcontainer in VS Code for a ready-to-use environment.
+
 ## Usage
 
 ### Convert BigTIFF to OME-Zarr
