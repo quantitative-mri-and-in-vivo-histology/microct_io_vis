@@ -38,6 +38,11 @@ python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --d
 
 ![Conversion pipeline](docs/images/conversion_pipeline.png)
 
+**Key options:**
+- `--max-memory`: Memory budget for streaming. Lower values flush to disk more frequently, reducing RAM usage but increasing conversion time.
+- `--compression`: Compression algorithm (`blosc-zstd`, `blosc-lz4`, `none`). Saves disk space at the cost of slightly slower viewer performance.
+- `--dtype uint16`: Halves output size by converting from float32, but reduces dynamic range.
+
 ### Visualize in Neuroglancer
 
 ```bash
