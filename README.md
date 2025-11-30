@@ -31,6 +31,9 @@ python examples/convert_tiff_to_zarr.py input.tif --info
 
 # Estimate memory usage before conversion
 python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --estimate
+
+# Convert to uint16 (50% smaller output, good for visualization)
+python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --dtype uint16
 ```
 
 ### Visualize in Neuroglancer
