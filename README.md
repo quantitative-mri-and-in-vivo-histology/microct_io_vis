@@ -36,6 +36,8 @@ python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --e
 python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --dtype uint16
 ```
 
+![Conversion pipeline](docs/images/conversion_pipeline.svg)
+
 ### Visualize in Neuroglancer
 
 ```bash

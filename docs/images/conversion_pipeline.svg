@@ -1,0 +1,201 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 900 350">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="350" fill="#fafafa"/>
+
+  <!-- BigTIFF Stack (left) - 3D isometric with slice layers -->
+  <g transform="translate(30, 45)">
+    <text x="72" y="-15" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#333">BigTIFF Stack</text>
+    <text x="72" y="0" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#666">(2D slices)</text>
+
+    <!-- Bottom slices (gray - already processed) -->
+    <g transform="translate(0, 130)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#b8b8b8" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#c4c4c4" stroke="#999" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 120)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#b8b8b8" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#c4c4c4" stroke="#999" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 110)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#b8b8b8" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#c4c4c4" stroke="#999" stroke-width="1"/>
+    </g>
+
+    <!-- Current batch being read (blue - highlighted) -->
+    <g transform="translate(0, 100)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#5a9de9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#3a7fc9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#4a90d9" stroke="#2d6cb5" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 90)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#5a9de9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#3a7fc9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#4a90d9" stroke="#2d6cb5" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 80)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#5a9de9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#3a7fc9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#4a90d9" stroke="#2d6cb5" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 70)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#5a9de9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#3a7fc9" stroke="#2d6cb5" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#4a90d9" stroke="#2d6cb5" stroke-width="1"/>
+    </g>
+
+    <!-- Top slices (gray - not yet processed) -->
+    <g transform="translate(0, 60)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#dcdcdc" stroke="#999" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 50)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#dcdcdc" stroke="#999" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 40)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#dcdcdc" stroke="#999" stroke-width="1"/>
+    </g>
+    <g transform="translate(0, 30)">
+      <polygon points="60,0 120,30 60,36 0,6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+      <polygon points="0,6 60,36 60,42 0,12" fill="#d0d0d0" stroke="#999" stroke-width="1"/>
+      <polygon points="60,36 120,30 120,36 60,42" fill="#dcdcdc" stroke="#999" stroke-width="1"/>
+    </g>
+
+    <!-- Sample patch below BigTIFF stack (center-aligned) -->
+    <image xlink:href="patch_level0.png" x="22" y="195" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+
+  <!-- Cylinder pipe (middle) -->
+  <g transform="translate(195, 160)">
+    <!-- Cylinder body -->
+    <rect x="20" y="0" width="140" height="40" fill="#e8e8e8" stroke="#999" stroke-width="1.5"/>
+
+    <!-- Left ellipse (back, partial) -->
+    <ellipse cx="20" cy="20" rx="15" ry="20" fill="#d0d0d0" stroke="#999" stroke-width="1.5"/>
+
+    <!-- Right ellipse (front opening) -->
+    <ellipse cx="160" cy="20" rx="15" ry="20" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+
+    <!-- Arrow inside -->
+    <line x1="40" y1="20" x2="130" y2="20" stroke="#4a90d9" stroke-width="3"/>
+    <polygon points="130,12 145,20 130,28" fill="#4a90d9"/>
+
+    <!-- Labels below -->
+    <text x="90" y="65" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#333">Streamed conversion</text>
+    <text x="90" y="80" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#666">(--max-memory configurable)</text>
+  </g>
+
+  <!-- OME-Zarr Pyramid (right) - 3D volumes with chunk subdivisions -->
+  <g transform="translate(435, 45)">
+    <text x="210" y="-15" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#333">OME-Zarr Pyramid</text>
+    <text x="210" y="0" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#666">(3D chunks, multi-resolution)</text>
+
+    <!-- Level 0 (full res) - Large cube with 3x3x3 subdivisions -->
+    <g transform="translate(0, 25)">
+      <text x="72" y="-5" text-anchor="middle" font-family="monospace" font-size="10" fill="#666">level 0 (1×)</text>
+
+      <!-- Top face - 3x3 grid -->
+      <polygon points="60,0 120,30 60,60 0,30" fill="#5a9de9" stroke="#2d6cb5" stroke-width="1.5"/>
+      <!-- Grid lines on top -->
+      <line x1="20" y1="20" x2="80" y2="50" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="40" y1="10" x2="100" y2="40" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="40" y1="40" x2="100" y2="10" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="20" y1="50" x2="80" y2="20" stroke="#2d6cb5" stroke-width="0.5"/>
+
+      <!-- Left face - 3x3 grid -->
+      <polygon points="0,30 60,60 60,150 0,120" fill="#3a7fc9" stroke="#2d6cb5" stroke-width="1.5"/>
+      <!-- Grid lines on left -->
+      <line x1="0" y1="60" x2="60" y2="90" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="0" y1="90" x2="60" y2="120" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="20" y1="40" x2="20" y2="130" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="40" y1="50" x2="40" y2="140" stroke="#2d6cb5" stroke-width="0.5"/>
+
+      <!-- Right face - 3x3 grid -->
+      <polygon points="60,60 120,30 120,120 60,150" fill="#4a90d9" stroke="#2d6cb5" stroke-width="1.5"/>
+      <!-- Grid lines on right -->
+      <line x1="60" y1="90" x2="120" y2="60" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="60" y1="120" x2="120" y2="90" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="80" y1="50" x2="80" y2="140" stroke="#2d6cb5" stroke-width="0.5"/>
+      <line x1="100" y1="40" x2="100" y2="130" stroke="#2d6cb5" stroke-width="0.5"/>
+    </g>
+
+    <!-- Level 1 (2x downsampled) - Medium cube with 2x2x2 subdivisions -->
+    <g transform="translate(160, 55)">
+      <text x="45" y="-5" text-anchor="middle" font-family="monospace" font-size="10" fill="#666">level 1 (2×)</text>
+
+      <!-- Top face -->
+      <polygon points="37,0 74,18 37,37 0,18" fill="#8ac58a" stroke="#4a9e4a" stroke-width="1.5"/>
+      <!-- Grid lines on top -->
+      <line x1="18" y1="9" x2="56" y2="28" stroke="#4a9e4a" stroke-width="0.5"/>
+      <line x1="18" y1="28" x2="56" y2="9" stroke="#4a9e4a" stroke-width="0.5"/>
+
+      <!-- Left face -->
+      <polygon points="0,18 37,37 37,100 0,81" fill="#6aa56a" stroke="#4a9e4a" stroke-width="1.5"/>
+      <!-- Grid lines on left -->
+      <line x1="0" y1="50" x2="37" y2="68" stroke="#4a9e4a" stroke-width="0.5"/>
+      <line x1="18" y1="28" x2="18" y2="90" stroke="#4a9e4a" stroke-width="0.5"/>
+
+      <!-- Right face -->
+      <polygon points="37,37 74,18 74,81 37,100" fill="#7ab57a" stroke="#4a9e4a" stroke-width="1.5"/>
+      <!-- Grid lines on right -->
+      <line x1="37" y1="68" x2="74" y2="50" stroke="#4a9e4a" stroke-width="0.5"/>
+      <line x1="56" y1="28" x2="56" y2="90" stroke="#4a9e4a" stroke-width="0.5"/>
+    </g>
+
+    <!-- Level 2 (4x downsampled) - Small cube with 2x2x2 subdivisions -->
+    <g transform="translate(280, 80)">
+      <text x="28" y="-5" text-anchor="middle" font-family="monospace" font-size="10" fill="#666">level 2 (4×)</text>
+
+      <!-- Top face -->
+      <polygon points="22,0 44,11 22,22 0,11" fill="#e9b35a" stroke="#b8862d" stroke-width="1.5"/>
+      <!-- Grid line on top -->
+      <line x1="11" y1="5" x2="33" y2="16" stroke="#b8862d" stroke-width="0.5"/>
+      <line x1="11" y1="16" x2="33" y2="5" stroke="#b8862d" stroke-width="0.5"/>
+
+      <!-- Left face -->
+      <polygon points="0,11 22,22 22,62 0,51" fill="#c9932a" stroke="#b8862d" stroke-width="1.5"/>
+      <!-- Grid lines on left -->
+      <line x1="0" y1="31" x2="22" y2="42" stroke="#b8862d" stroke-width="0.5"/>
+      <line x1="11" y1="16" x2="11" y2="56" stroke="#b8862d" stroke-width="0.5"/>
+
+      <!-- Right face -->
+      <polygon points="22,22 44,11 44,51 22,62" fill="#d9a34a" stroke="#b8862d" stroke-width="1.5"/>
+      <!-- Grid lines on right -->
+      <line x1="22" y1="42" x2="44" y2="31" stroke="#b8862d" stroke-width="0.5"/>
+      <line x1="33" y1="16" x2="33" y2="56" stroke="#b8862d" stroke-width="0.5"/>
+    </g>
+
+    <!-- Level 3 (8x downsampled) - Tiny cube (single chunk) -->
+    <g transform="translate(370, 100)">
+      <text x="15" y="-5" text-anchor="middle" font-family="monospace" font-size="10" fill="#666">level 3 (8×)</text>
+
+      <!-- Top face -->
+      <polygon points="15,0 30,8 15,15 0,8" fill="#e98a8a" stroke="#b85c5c" stroke-width="1.5"/>
+
+      <!-- Left face -->
+      <polygon points="0,8 15,15 15,40 0,33" fill="#c96a6a" stroke="#b85c5c" stroke-width="1.5"/>
+
+      <!-- Right face -->
+      <polygon points="15,15 30,8 30,33 15,40" fill="#d97a7a" stroke="#b85c5c" stroke-width="1.5"/>
+    </g>
+
+    <!-- Sample patches below each level (vertically center-aligned) -->
+    <image xlink:href="patch_level0.png" x="22" y="195" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
+    <image xlink:href="patch_level1.png" x="170" y="220" width="50" height="50" preserveAspectRatio="xMidYMid meet"/>
+    <image xlink:href="patch_level2.png" x="283" y="232" width="25" height="25" preserveAspectRatio="xMidYMid meet"/>
+    <image xlink:href="patch_level3.png" x="372" y="238" width="13" height="13" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>
