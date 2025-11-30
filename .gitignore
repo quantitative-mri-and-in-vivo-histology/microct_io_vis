@@ -162,7 +162,6 @@ logs/
 models/
 
 .claude/*
-.devcontainer/*
 
 # LaTeX temporary files
 *.aux

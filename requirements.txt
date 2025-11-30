@@ -3,5 +3,6 @@ tifffile
 zarr
 scikit-image
 tqdm
+neuroglancer
 
 
