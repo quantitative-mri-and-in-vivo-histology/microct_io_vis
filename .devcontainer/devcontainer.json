@@ -1,0 +1,68 @@
+{
+  "name": "MicroCT Zarr Dev",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "build": {
+    "args": {
+      "TZ": "${localEnv:TZ:UTC}",
+      "GIT_DELTA_VERSION": "0.18.2",
+      "ZSH_IN_DOCKER_VERSION": "1.2.0"
+    }
+  },
+  "features": {},
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW", "--shm-size=8g"],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "eamodio.gitlens",
+        "ms-python.debugpy",
+        "ms-python.isort",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ms-python.python",
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.python",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "python.defaultInterpreterPath": "python3",
+        "python.languageServer": "Pylance",
+        "jupyter.notebookFileRoot": "${workspaceFolder}",
+        "jupyter.enablePlotViewer": true,
+        "python.terminal.executeInFileDir": false,
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "bash",
+            "icon": "terminal-bash"
+          },
+          "zsh": {
+            "path": "zsh"
+          }
+        }
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=microct-zarr-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/node/.ssh-host,type=bind,consistency=cached"
+  ],
+  "containerEnv": {
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+    "PYTHONPATH": "/workspace",
+    "ENABLE_CLAUDE": "${localEnv:ENABLE_CLAUDE}"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "bash /workspace/.devcontainer/post-create.sh",
+  "postStartCommand": "bash /workspace/.devcontainer/post-start.sh",
+  "initializeCommand": "[ -f .env ] && set -a && . ./.env && set +a || true"
+}
