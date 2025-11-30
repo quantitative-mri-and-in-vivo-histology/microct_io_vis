@@ -42,6 +42,8 @@ python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --d
 python examples/visualize_zarr.py output.zarr
 ```
 
+![Neuroglancer visualization example](docs/images/neuroglancer_example.png)
+
 ## Benchmarks
 
 Tested on a 52.64 GB BigTIFF volume with 128x128x128 chunks and 8GB memory budget:
