@@ -175,6 +175,15 @@ def main():
     )
 
     parser.add_argument(
+        "--roi",
+        type=int,
+        nargs=6,
+        metavar=("Z0", "Z1", "Y0", "Y1", "X0", "X1"),
+        help="Convert only a sub-region. Half-open bounding box in voxel "
+             "coordinates: includes Z0/Y0/X0, excludes Z1/Y1/X1.",
+    )
+
+    parser.add_argument(
         "--info", "-i",
         action="store_true",
         help="Show TIFF info and exit (no conversion)",
@@ -232,6 +241,7 @@ def main():
 
     # Prepare value_range if provided
     value_range = tuple(args.value_range) if args.value_range else None
+    roi = tuple(args.roi) if args.roi else None
 
     # Run conversion
     try:
@@ -244,6 +254,7 @@ def main():
             max_memory=args.max_memory,
             output_dtype=args.dtype,
             value_range=value_range,
+            roi=roi,
             progress=not args.quiet,
         )
 

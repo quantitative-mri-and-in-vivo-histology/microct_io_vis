@@ -151,6 +151,7 @@ class StreamingPyramidConverter:
         max_memory_bytes: int | None = None,
         output_dtype: OutputDtype = "float32",
         value_range: tuple[float, float] | None = None,
+        roi: tuple[int, int, int, int, int, int] | None = None,
     ):
         """
         Initialize the converter.
@@ -169,6 +170,9 @@ class StreamingPyramidConverter:
                 "uint16" normalizes to 0-65535 for 50% storage reduction.
             value_range: (min, max) range for uint16 normalization. If None and
                 output_dtype is "uint16", will pre-scan the TIFF to find range.
+            roi: Optional (z0, z1, y0, y1, x0, x1) bounding box (half-open) to
+                convert a sub-region instead of the full volume. Coordinates are
+                in the full TIFF's voxel space.
         """
         # Validate inputs
         if num_levels < 1:
@@ -201,8 +205,17 @@ class StreamingPyramidConverter:
 
             # Get Y, X dimensions from first page
             page_shape = tif.pages[0].shape
-            self.source_shape = (n_pages, page_shape[0], page_shape[1])  # (Z, Y, X)
+            self.full_source_shape = (n_pages, page_shape[0], page_shape[1])  # (Z, Y, X)
             self.source_dtype = tif.pages[0].dtype
+
+        # Apply ROI: source_shape reflects the effective (cropped) volume so all
+        # downstream math (padding, pyramid shapes, batching) operates on it.
+        self.roi = self._validate_roi(roi) if roi is not None else None
+        if self.roi is not None:
+            z0, z1, y0, y1, x0, x1 = self.roi
+            self.source_shape = (z1 - z0, y1 - y0, x1 - x0)
+        else:
+            self.source_shape = self.full_source_shape
 
         # Compute spatial divisor for Y/X padding
         self.spatial_divisor = 2 ** (num_levels - 1)
@@ -220,6 +233,25 @@ class StreamingPyramidConverter:
             self.source_shape, self.batch_size, self.spatial_divisor
         )
         self.pyramid_shapes = compute_pyramid_shapes(self.padded_shape, num_levels)
+
+    def _validate_roi(
+        self, roi: tuple[int, int, int, int, int, int]
+    ) -> tuple[int, int, int, int, int, int]:
+        """Validate ROI bounds against the full source shape."""
+        if len(roi) != 6:
+            raise ValueError(f"roi must be (z0, z1, y0, y1, x0, x1), got {roi}")
+        z0, z1, y0, y1, x0, x1 = roi
+        full_z, full_y, full_x = self.full_source_shape
+        for name, lo, hi, full in [
+            ("z", z0, z1, full_z),
+            ("y", y0, y1, full_y),
+            ("x", x0, x1, full_x),
+        ]:
+            if not (0 <= lo < hi <= full):
+                raise ValueError(
+                    f"roi {name}-range [{lo}, {hi}) is invalid for source extent {full}"
+                )
+        return (z0, z1, y0, y1, x0, x1)
 
     def _get_compressor(self) -> numcodecs.abc.Codec | None:
         """Get the configured compressor for zarr v2."""
@@ -245,16 +277,29 @@ class StreamingPyramidConverter:
         global_min = float('inf')
         global_max = float('-inf')
 
+        if self.roi is not None:
+            z0, z1, y0, y1, x0, x1 = self.roi
+        else:
+            z0, z1 = 0, self.full_source_shape[0]
+            y0, y1 = 0, self.full_source_shape[1]
+            x0, x1 = 0, self.full_source_shape[2]
+
+        spatial_crop = (
+            (y0, y1) != (0, self.full_source_shape[1])
+            or (x0, x1) != (0, self.full_source_shape[2])
+        )
+
         with tifffile.TiffFile(self.tiff_path) as tif:
-            pages = tif.pages
             iterator = tqdm(
-                pages,
+                range(z0, z1),
                 desc="Pre-scanning for value range",
                 unit="slice",
                 disable=not show_progress,
             )
-            for page in iterator:
-                data = page.asarray()
+            for z in iterator:
+                data = tif.pages[z].asarray()
+                if spatial_crop:
+                    data = data[y0:y1, x0:x1]
                 global_min = min(global_min, float(data.min()))
                 global_max = max(global_max, float(data.max()))
 
@@ -389,8 +434,11 @@ class StreamingPyramidConverter:
         # Build metadata dict
         metadata = {
             "description": "Converted from BigTIFF with streaming pyramid generation",
-            "original_shape": list(self.source_shape),
+            "original_shape": list(self.full_source_shape),
         }
+
+        if self.roi is not None:
+            metadata["roi"] = list(self.roi)
 
         # Add dtype conversion info for uint16
         if self.output_dtype == "uint16" and self.value_range is not None:
@@ -437,10 +485,23 @@ class StreamingPyramidConverter:
         _, padded_y, padded_x = self.padded_shape
         source_y, source_x = self.source_shape[1], self.source_shape[2]
 
+        # ROI offsets (zero when no ROI)
+        if self.roi is not None:
+            z_offset, _, y0, y1, x0, x1 = self.roi
+            spatial_crop = (
+                (y0, y1) != (0, self.full_source_shape[1])
+                or (x0, x1) != (0, self.full_source_shape[2])
+            )
+        else:
+            z_offset = 0
+            spatial_crop = False
+
         # Read available slices
         slices = []
         for z in range(z_start, z_end):
-            slice_data = tif.pages[z].asarray()
+            slice_data = tif.pages[z + z_offset].asarray()
+            if spatial_crop:
+                slice_data = slice_data[y0:y1, x0:x1]
             slices.append(slice_data)
 
         # Stack into 3D array
@@ -662,6 +723,7 @@ def convert_tiff_to_ome_zarr(
     max_memory: str | int | None = None,
     output_dtype: OutputDtype = "float32",
     value_range: tuple[float, float] | None = None,
+    roi: tuple[int, int, int, int, int, int] | None = None,
     progress: bool = True,
 ) -> Path:
     """
@@ -681,6 +743,8 @@ def convert_tiff_to_ome_zarr(
             "uint16" normalizes to 0-65535 for 50% storage reduction.
         value_range: (min, max) range for uint16 normalization. If None and
             output_dtype is "uint16", will pre-scan the TIFF to find range.
+        roi: Optional (z0, z1, y0, y1, x0, x1) bounding box (half-open) to
+            convert a sub-region instead of the full volume.
         progress: Whether to print progress
 
     Returns:
@@ -701,6 +765,7 @@ def convert_tiff_to_ome_zarr(
         max_memory_bytes=max_memory_bytes,
         output_dtype=output_dtype,
         value_range=value_range,
+        roi=roi,
     )
 
     # Print info
@@ -713,6 +778,9 @@ def convert_tiff_to_ome_zarr(
                   f"(set --max-memory to customize)", file=sys.stderr)
 
         print(f"Converting: {tiff_path}")
+        if converter.roi is not None:
+            print(f"  Full source shape: {converter.full_source_shape}")
+            print(f"  ROI (z0 z1 y0 y1 x0 x1): {converter.roi}")
         print(f"  Source shape: {converter.source_shape}")
         print(f"  Padded shape: {converter.padded_shape}")
         print(f"  Pyramid levels: {num_levels}")
