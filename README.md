@@ -47,10 +47,33 @@ python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --e
 python examples/convert_tiff_to_zarr.py input.tif output.zarr -c 128 128 128 --dtype uint16
 ```
 
+### Segment with Cellpose
+
+`segment_zarr.py` runs a 3D Cellpose model on the volume (or a sub-ROI) and writes the labels as an OME-Zarr pyramid (uint32, nearest-NN downsampling) plus a TIFF and `meta.json`. The segmentation's coordinate transform mirrors the source so it overlays correctly in physical units.
+
+```bash
+# Single model (cell)
+python examples/segment_zarr.py output.zarr \
+    --model data/models/best_model_cell \
+    --outdir output_seg
+
+# Dual model (cell + blood, distinct mask IDs) on a sub-ROI
+python examples/segment_zarr.py output.zarr \
+    --model data/models/best_model_cell \
+    --model2 data/models/best_model_blood --mask-id2 2 \
+    --roi 0:256,256:768,256:768 \
+    --outdir output_seg
+```
+
 ### Visualize in Neuroglancer
 
 ```bash
+# Grayscale only
 python examples/visualize_zarr.py output.zarr
+
+# Grayscale + segmentation overlay
+python examples/visualize_zarr.py output.zarr \
+    --segmentation output_seg/segmentation_3d.zarr --keep-open
 ```
 
 ![Neuroglancer visualization example](docs/images/neuroglancer_example.png)
