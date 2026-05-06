@@ -4,5 +4,6 @@ zarr
 scikit-image
 tqdm
 neuroglancer
+cellpose
 
 
