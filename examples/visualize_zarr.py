@@ -184,11 +184,13 @@ def visualize_zarr(zarr_path: Path, keep_open: bool = False, local: bool = False
         lowest_level = len(datasets) - 1
         lowest_arr = root[datasets[lowest_level]["path"]]
         sample_data = lowest_arr[:]
-        data_min, data_max = int(np.percentile(sample_data, 1)), int(np.percentile(sample_data, 99))
+        data_min = float(np.percentile(sample_data, 1))
+        data_max = float(np.percentile(sample_data, 99))
+        print(f"Shader range (1st-99th percentile): [{data_min:.6g}, {data_max:.6g}]")
 
         # Create shader with appropriate intensity window
         shader = f"""
-#uicontrol invlerp normalized(range=[{data_min}, {data_max}])
+#uicontrol invlerp normalized(range=[{data_min:.8g}, {data_max:.8g}])
 void main() {{
   emitGrayscale(normalized());
 }}
