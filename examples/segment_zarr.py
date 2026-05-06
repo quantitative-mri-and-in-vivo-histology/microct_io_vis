@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 from typing import Tuple
 
+import numcodecs
 import numpy as np
 import tifffile
 import zarr
@@ -229,28 +230,137 @@ def combine_masks(mask1: np.ndarray, mask2: np.ndarray,
     return combined
 
 
+
+
+DEFAULT_AXES = [
+    {"name": "z", "type": "space", "unit": "micrometer"},
+    {"name": "y", "type": "space", "unit": "micrometer"},
+    {"name": "x", "type": "space", "unit": "micrometer"},
+]
+
+
+def read_source_meta(zarr_path: Path) -> dict:
+    """Extract OME-Zarr axes / level-0 scale / pyramid depth from a source volume."""
+    root = zarr.open_group(str(zarr_path), mode="r")
+    multiscales = root.attrs.get("multiscales", [{}])[0]
+
+    axes = multiscales.get("axes") or DEFAULT_AXES
+    datasets = multiscales.get("datasets", [])
+
+    scale = [1.0, 1.0, 1.0]
+    if datasets:
+        for t in datasets[0].get("coordinateTransformations", []):
+            if t.get("type") == "scale":
+                scale = list(t["scale"])
+                break
+
+    return {
+        "axes": axes,
+        "scale": scale,
+        "num_levels": len(datasets) or 4,
+    }
+
+
+def write_label_pyramid(
+    masks: np.ndarray,
+    zarr_path: Path,
+    source_meta: dict,
+    voxel_offset: Tuple[int, int, int] = (0, 0, 0),
+    chunk_size: int = 64,
+    extra_metadata: dict | None = None,
+) -> None:
+    """Write labels as an OME-Zarr pyramid (uint32, nearest-NN downsampling).
+
+    Mirrors the source's axes/scale and adds a translation transform so the
+    segmentation aligns with the source volume in physical coordinates.
+    """
+    masks = np.maximum(masks, 0).astype(np.uint32, copy=False)
+    base_scale = [float(s) for s in source_meta["scale"]]
+    translation = [float(o) * s for o, s in zip(voxel_offset, base_scale)]
+
+    min_dim = min(masks.shape)
+    max_levels = max(1, int(np.floor(np.log2(min_dim / 32))) + 1)
+    num_levels = max(1, min(int(source_meta["num_levels"]), max_levels))
+
+    root = zarr.open_group(str(zarr_path), mode="w", zarr_format=2)
+    compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=numcodecs.Blosc.BITSHUFFLE)
+
+    current = masks
+    datasets = []
+    for level in range(num_levels):
+        if level > 0:
+            current = current[::2, ::2, ::2].copy()
+        level_chunks = tuple(min(chunk_size, s) for s in current.shape)
+        arr = root.create_array(
+            name=str(level),
+            shape=current.shape,
+            chunks=level_chunks,
+            dtype=current.dtype,
+            compressor=compressor,
+        )
+        arr[:] = current
+
+        scale_factor = 2 ** level
+        datasets.append({
+            "path": str(level),
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [s * scale_factor for s in base_scale]},
+                {"type": "translation", "translation": translation},
+            ],
+        })
+        print(f"  Level {level}: {tuple(current.shape)}, "
+              f"{current.nbytes / 1024**2:.1f} MB")
+
+    metadata = {
+        "original_shape": list(masks.shape),
+        "voxel_offset": list(voxel_offset),
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
+    root.attrs["multiscales"] = [{
+        "version": "0.4",
+        "name": zarr_path.stem,
+        "axes": source_meta["axes"],
+        "datasets": datasets,
+        "type": "nearest",
+        "metadata": metadata,
+    }]
+
+
 def save_outputs(
     outdir: Path,
     masks: np.ndarray,
     volume_shape: Tuple[int, int, int],
     roi: Tuple[slice, slice, slice] | None,
+    source_meta: dict,
     meta: dict,
 ) -> None:
-    """Save segmentation outputs."""
+    """Save segmentation as TIFF + OME-Zarr pyramid + metadata JSON."""
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Save masks as TIFF
+    masks_u32 = np.maximum(masks, 0).astype(np.uint32, copy=False)
+
     mask_path = outdir / "segmentation_3d.tif"
-    tifffile.imwrite(str(mask_path), masks)
+    tifffile.imwrite(str(mask_path), masks_u32)
     print(f"Saved masks: {mask_path}")
 
-    # Save as Zarr for Neuroglancer compatibility
+    voxel_offset = (
+        (roi[0].start or 0, roi[1].start or 0, roi[2].start or 0)
+        if roi is not None else (0, 0, 0)
+    )
+
     zarr_path = outdir / "segmentation_3d.zarr"
-    z = zarr.open(zarr_path, mode="w", shape=masks.shape, dtype=masks.dtype, chunks=(64, 64, 64))
-    z[:] = masks
+    print(f"Writing OME-Zarr pyramid to {zarr_path}...")
+    write_label_pyramid(
+        masks_u32,
+        zarr_path,
+        source_meta=source_meta,
+        voxel_offset=voxel_offset,
+        extra_metadata={"source_zarr": meta.get("source_zarr")},
+    )
     print(f"Saved Zarr: {zarr_path}")
 
-    # Save metadata
     if roi is not None:
         meta["roi"] = {
             "z": [roi[0].start or 0, roi[0].stop or volume_shape[0]],
@@ -258,8 +368,11 @@ def save_outputs(
             "x": [roi[2].start or 0, roi[2].stop or volume_shape[2]],
         }
 
-    meta["output_shape"] = list(masks.shape)
-    meta["n_objects_total"] = int(masks.max())
+    meta["output_shape"] = list(masks_u32.shape)
+    meta["output_dtype"] = "uint32"
+    meta["voxel_offset"] = list(voxel_offset)
+    meta["source_scale"] = source_meta["scale"]
+    meta["n_objects_total"] = int(masks_u32.max())
 
     meta_path = outdir / "meta.json"
     with open(meta_path, "w") as f:
@@ -395,12 +508,13 @@ def main():
     # Load volume
     print(f"\nLoading: {args.zarr_path}")
 
-    # First, get shape for ROI parsing
+    # First, get shape for ROI parsing and source coord-space metadata
     root = zarr.open_group(args.zarr_path, mode="r")
     multiscales = root.attrs.get("multiscales", [])
     datasets = multiscales[0].get("datasets", [])
     arr = root[datasets[args.level]["path"]]
     full_shape = arr.shape
+    source_meta = read_source_meta(args.zarr_path)
 
     # Parse ROI if provided
     roi = None
@@ -461,7 +575,7 @@ def main():
 
     # Save outputs
     print(f"\nSaving outputs to: {args.outdir}")
-    save_outputs(args.outdir, final_masks, full_shape, roi, meta)
+    save_outputs(args.outdir, final_masks, full_shape, roi, source_meta, meta)
 
     print("\nDone!")
 
